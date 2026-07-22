@@ -1,0 +1,47 @@
+[project]
+name = "unstructured-api"
+version = "1.0.0"
+description = "Document parsing/OCR API powered by unstructured, deployed on RunPod serverless"
+authors = [{ name = "philogicae" }]
+requires-python = ">=3.14,<4.0"
+readme = "README.md"
+license = "MIT"
+dependencies = [
+    "unstructured[all-docs,huggingface,paddleocr]",
+    "runpod",
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "python-dotenv",
+    "onnx>=1.21",
+    "magika",
+]
+
+[project.urls]
+Repository = "https://github.com/philogicae/docker-unstructured-api"
+
+[project.scripts]
+unstructured-api = "unstructured_api.__main__:cli"
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "ty",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.hatch.build]
+include = ["unstructured_api"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::DeprecationWarning:unstructured.*",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]

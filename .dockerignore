@@ -1,0 +1,11 @@
+.git
+.gitignore
+.github
+.gitattributes
+README.md
+.env
+.env.*
+!.env.example
+.vscode
+tests/
+.DS_Store

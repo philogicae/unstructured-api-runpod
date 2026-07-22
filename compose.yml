@@ -1,0 +1,12 @@
+name: unstructured-api
+
+services:
+  api:
+    container_name: unstructured-api
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: unstructured-api
+    restart: unless-stopped
+    ports:
+      - "${DOCKER_PORT:-8000}:8000"
