@@ -1,4 +1,4 @@
-## [1.0.0] - 2026-07-23
+## [1.0.4] - 2026-07-23
 
 ### 🚀 Features
 
@@ -62,17 +62,12 @@ Other:
 - Version bump 1.0.0 → 0.9.0
 - Update repo URL to philogicae/unstructured-api-runpod
 - Add comment annotations throughout Dockerfiles
-- Refactor **main**.py imports for clarity
+- Refactor main.py imports for clarity
+
+### 🐛 Bug Fixes
+
+- Fix: improve Docker build, add model preloading, expand test coverage, and update docs
 
 ### 💼 Changes
 
 - Init
-
-### 🧪 Testing
-
-- Test: add parallel execution, timeouts, mocking, and lazy imports
-
-### ⚙️ Miscellaneous Tasks
-
-- Chore: bump version 0.9.0 → 1.0.0
-- Chore: update changelog
