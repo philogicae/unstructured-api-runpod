@@ -1,0 +1,13 @@
+{
+  "title": "Unstructured API",
+  "description": "Document parsing/OCR API powered by unstructured. Supports PDF, DOCX, PPTX, images, HTML, EPUB, and many more formats.",
+  "type": "serverless",
+  "category": "image",
+  "iconUrl": "https://binaryeyelabs.xyz/images/512x512.png",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 10,
+    "gpuIds": "AMPERE_16",
+    "gpuCount": 1
+  }
+}

@@ -13,5 +13,5 @@ uv run ruff check --fix
 # Run type checking
 uv run ty check
 
-# Run tests
-uv run pytest
+# Run tests with coverage
+uv run pytest --cov=unstructured_api --cov-report=term-missing

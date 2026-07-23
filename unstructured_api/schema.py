@@ -1,9 +1,21 @@
 def get_schema_server():
     return {
         "/health": "GET — health check",
-        "/schema": "GET — return API schema",
-        "/formats": "GET — return supported file formats",
-        "/parse": "POST — parse document (multipart or JSON)",
+        "/schema": "GET — return this API schema",
+        "/formats": "GET — return supported file formats grouped by type (documents, images, text)",
+        "/extract": {
+            "method": "POST",
+            "description": "Upload a document and extract structured elements. Returns application/zip with elements.json, metadata.json, and images/.",
+            "input": {
+                "file": "UploadFile (multipart) — attach a file directly",
+                "file_base64": "str (form field) — base64-encoded file content",
+                "file_url": "str (form field) — public URL to download the file from",
+            },
+            "output": {
+                "success": "application/zip (elements.json, metadata.json, images/)",
+                "error": 'application/json — {"error": "<reason>"}',
+            },
+        },
     }
 
 
@@ -12,21 +24,9 @@ def get_schema_serverless():
         "input": {
             "file_base64": "str (base64-encoded file content)",
             "file_url": "str (public URL to download)",
-            "filename": "str (hint for file extension)",
         },
         "output": {
-            "elements": [
-                {
-                    "type": "str",
-                    "text": "str",
-                    "metadata": {"page_number": "int", "filename": "str"},
-                }
-            ],
-            "metadata": {
-                "filename": "str",
-                "num_elements": "int",
-                "processing_time": "float",
-            },
-            "error": "str | null",
+            "success": "application/zip binary (elements.json, metadata.json, images/)",
+            "error": '{"error": "<reason>"}',
         },
     }

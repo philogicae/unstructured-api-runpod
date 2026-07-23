@@ -9,13 +9,13 @@ def cli():
     args = parser.parse_args()
 
     if args.mode == "serverless":
-        from .worker import start
+        from .worker import start as worker_start
 
-        start()
+        worker_start()
     elif args.mode == "api":
-        from .server import start
+        from .server import start as api_start
 
-        start(host=args.host, port=args.port)
+        api_start(host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

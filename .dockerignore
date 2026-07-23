@@ -1,11 +1,52 @@
+# VCS
 .git
 .gitignore
 .github
 .gitattributes
-README.md
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python caches & artifacts
+__pycache__/
+*.py[cod]
+*.egg-info
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Environments
 .env
 .env.*
 !.env.example
-.vscode
-tests/
+
+# Docs & misc
+*.md
+!README.md
+LICENSE
+cliff.toml
+
+# Docker
+Dockerfile*
+compose*.yml
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Not needed in image
+scripts/
+tests/
+data/
+dev.*

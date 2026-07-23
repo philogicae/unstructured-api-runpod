@@ -1,18 +1,20 @@
 FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim AS base
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0 \
-    OMP_THREAD_LIMIT=1
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0 OMP_THREAD_LIMIT=1
 WORKDIR /app
+# Install linux dependencies
 RUN apt-get update && \
-    apt-get install -y wget g++ libmagic-dev poppler-utils tesseract-ocr libreoffice && \
+    apt-get install -y g++ libmagic-dev poppler-utils tesseract-ocr libreoffice rustc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 FROM base AS builder
+# Install python dependencies
 COPY pyproject.toml uv.lock README.md /app/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
 FROM builder AS runner
+# Install project
 COPY unstructured_api /app/unstructured_api
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

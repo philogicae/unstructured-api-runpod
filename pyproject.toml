@@ -7,18 +7,23 @@ requires-python = ">=3.14,<4.0"
 readme = "README.md"
 license = "MIT"
 dependencies = [
-    "unstructured[all-docs,huggingface,paddleocr]",
-    "runpod",
-    "fastapi",
-    "uvicorn",
-    "python-multipart",
-    "python-dotenv",
+    "unstructured[all-docs,huggingface]",
+    "runpod>=1.7",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "python-multipart>=0.0.18",
+    "python-dotenv>=1.0",
+    "opencv-contrib-python>=4.10",
     "onnx>=1.21",
-    "magika",
+    "magika>=0.5",
+    "imagededup>=0.2",
 ]
 
+[tool.uv]
+no-binary-package = ["imagededup"]
+
 [project.urls]
-Repository = "https://github.com/philogicae/docker-unstructured-api"
+Repository = "https://github.com/philogicae/unstructured-api-runpod"
 
 [project.scripts]
 unstructured-api = "unstructured_api.__main__:cli"
@@ -29,6 +34,9 @@ dev = [
     "ty",
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-timeout",
 ]
 
 [tool.hatch.build]
@@ -41,6 +49,8 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+asyncio_mode = "auto"
+addopts = "--durations=10"
 filterwarnings = [
     "ignore::DeprecationWarning:unstructured.*",
     "ignore::starlette.exceptions.StarletteDeprecationWarning",

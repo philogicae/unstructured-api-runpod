@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from unstructured_api.worker import handler, INPUT_SCHEMA
+from unstructured_api.worker import INPUT_SCHEMA, handler, start
 
 
 def test_handler_schema():
@@ -12,27 +12,25 @@ def test_handler_schema():
 
 @patch("unstructured_api.worker.parse_document")
 def test_handler_valid(mock_parse):
-    mock_parse.return_value = {"elements": [], "metadata": {}, "error": None}
-    job = {"input": {"file_base64": "SGVsbG8=", "filename": "test.txt"}}
+    mock_parse.return_value = b"fakezip"
+    job = {"input": {"file_base64": "SGVsbG8="}}
     result = handler(job)
-    assert result["error"] is None
+    assert isinstance(result, bytes)
     mock_parse.assert_called_once_with(
         file_content="SGVsbG8=",
         file_url=None,
-        filename="test.txt",
     )
 
 
 @patch("unstructured_api.worker.parse_document")
 def test_handler_minimal_input(mock_parse):
-    mock_parse.return_value = {"elements": [], "metadata": {}, "error": None}
+    mock_parse.return_value = b"fakezip"
     job = {"input": {"file_base64": "dGVzdA=="}}
     result = handler(job)
-    assert result["error"] is None
+    assert isinstance(result, bytes)
     mock_parse.assert_called_once()
     kwargs = mock_parse.call_args[1]
     assert kwargs["file_content"] == "dGVzdA=="
-    assert kwargs["filename"] == "document"
 
 
 def test_handler_missing_input_key():
@@ -41,8 +39,19 @@ def test_handler_missing_input_key():
     assert "error" in result
 
 
+def test_handler_validation_error():
+    job = {"input": {"file_base64": 12345}}
+    result = handler(job)
+    assert "error" in result
+
+
 def test_input_schema_structure():
     assert "file_base64" in INPUT_SCHEMA
     assert "file_url" in INPUT_SCHEMA
-    assert "filename" in INPUT_SCHEMA
-    assert not INPUT_SCHEMA["file_base64"]["required"]
+    assert "filename" not in INPUT_SCHEMA
+
+
+def test_worker_start():
+    with patch("unstructured_api.worker.serverless") as mock_serverless:
+        start()
+        mock_serverless.start.assert_called_once()
