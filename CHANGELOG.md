@@ -1,4 +1,4 @@
-## [1.0.4] - 2026-07-23
+## [1.0.5] - 2026-07-23
 
 ### 🚀 Features
 
@@ -63,6 +63,18 @@ Other:
 - Update repo URL to philogicae/unstructured-api-runpod
 - Add comment annotations throughout Dockerfiles
 - Refactor main.py imports for clarity
+- Feat: zip output, total_time tracking, model preload, RunPod test tooling
+
+- Return `{"zip": b64, "total_time": N}` instead of raw bytes across
+  all paths (success, validation error, oversized input)
+- Add `elapsed()` helper, track wall time per request
+- Preload `unstructuredio/yolo_x_layout` model in Docker build
+- Add .env.example with RunPod credentials, .gitignore scripts/zip/
+- Use `parse_known_args` in CLI to tolerate unknown args
+- Add local-testing.sh + remote-testing.py for manual RunPod tests
+- Reset RunPod Checkpoints between tests to avoid pollution
+- Fix resource leak on b64decode failure (close fd, remove temp)
+- Bump version 1.0.4 → 1.0.5
 
 ### 🐛 Bug Fixes
 
@@ -71,3 +83,8 @@ Other:
 ### 💼 Changes
 
 - Init
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore: update changelog
+- Chore: add font packages and cache refresh to system dependencies
