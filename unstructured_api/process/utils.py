@@ -4,6 +4,7 @@ from os import close, listdir, remove
 from pathlib import PurePath
 from re import split as re_split
 from tempfile import mkstemp
+from time import time as now
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -55,8 +56,13 @@ def detect_content_type(file_path: str) -> str | None:
 
 def base64_to_tempfile(content: str, suffix: str = "") -> str:
     fd, path = mkstemp(suffix=suffix)
-    with open(fd, "wb") as f:
-        f.write(b64decode(content))
+    try:
+        with open(fd, "wb") as f:
+            f.write(b64decode(content))
+    except Exception:
+        close(fd)
+        remove(path)
+        raise
     return path
 
 
@@ -121,3 +127,7 @@ def cleanup(path: str) -> None:
         remove(path)
     except OSError:
         pass
+
+
+def elapsed(started: float) -> float:
+    return round(now() - started, 4)

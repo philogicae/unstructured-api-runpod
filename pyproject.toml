@@ -1,6 +1,6 @@
 [project]
 name = "unstructured-api"
-version = "1.0.4"
+version = "1.0.5"
 description = "Document parsing/OCR API powered by unstructured, deployed on RunPod serverless"
 authors = [{ name = "philogicae" }]
 requires-python = ">=3.14,<4.0"

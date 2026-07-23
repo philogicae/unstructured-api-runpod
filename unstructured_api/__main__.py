@@ -6,7 +6,7 @@ def cli():
     parser.add_argument("--mode", choices=["serverless", "api"], default="serverless")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     if args.mode == "serverless":
         from .worker import start as worker_start

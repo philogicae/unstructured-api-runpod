@@ -24,7 +24,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/huggingface \
     echo x > /tmp/preboot.html && soffice --headless --convert-to txt --outdir /tmp /tmp/preboot.html && rm /tmp/preboot.* && \
     uv run --no-sync python -c "from unstructured.nlp.tokenize import _get_nlp; _get_nlp()" && \
-    uv run --no-sync python -c "from unstructured.partition.model_init import initialize; initialize()"
+    uv run --no-sync python -c "from unstructured.partition.model_init import initialize; initialize()" && \
+    uv run --no-sync python -c "from huggingface_hub import hf_hub_download; hf_hub_download('unstructuredio/yolo_x_layout', 'yolox_l0.05.onnx')"
 ENV LD_PRELOAD=/lib/x86_64-linux-gnu/libstdc++.so.6
 ENV HF_HUB_OFFLINE=1
 # Install project
