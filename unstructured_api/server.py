@@ -8,28 +8,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from unstructured_api.process.document import parse_document
-from unstructured_api.schema import get_schema_server
-from unstructured_api.settings import CORS_ORIGINS, MAX_UPLOAD_SIZE, SUPPORTED_FORMATS
+from unstructured_api.process.utils import exceeds_size, get_filename
+from unstructured_api.settings import MIDDLEWARE_PARAMS, SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Unstructured API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    **MIDDLEWARE_PARAMS,
 )
 
 
 @app.get("/")
-async def health():
+async def root():
     return {"status": "ok"}
-
-
-@app.get("/schema")
-async def schema():
-    return {"schema": get_schema_server()}
 
 
 @app.get("/formats")
@@ -39,35 +32,31 @@ async def formats():
 
 @app.post("/extract")
 async def extract(
-    file: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),  # noqa: B008
     file_base64: str | None = Form(None),
     file_url: str | None = Form(None),
 ):
-    log_filename = None
     if file and file.filename:
         content = await file.read()
-        if len(content) > MAX_UPLOAD_SIZE:
+        if exceeds_size(content):
             logger.warning("Upload rejected: %s exceeds max size", file.filename)
             raise HTTPException(status_code=413, detail="File exceeds max upload size")
         file_base64 = b64encode(content).decode("utf-8")
-        log_filename = file.filename
-    elif file_base64 and len(file_base64) > MAX_UPLOAD_SIZE * 4 // 3:
+    elif file_base64 and exceeds_size(file_base64):
         logger.warning("Base64 upload rejected: exceeds max size")
         raise HTTPException(
             status_code=413, detail="Base64 content exceeds max upload size"
         )
-
-    logger.info("Extracting document: filename=%s", log_filename)
+    filename = get_filename(filename=file.filename if file else None, file_url=file_url)
+    logger.info("Extracting document: filename=%s", filename)
     result = parse_document(
         file_content=file_base64,
         file_url=file_url,
-        filename=log_filename,
+        filename=filename,
     )
-
     if isinstance(result, dict):
         return result
-
-    zip_name = f"{Path(log_filename).stem}.zip" if log_filename else "extracted.zip"
+    zip_name = f"{Path(filename).stem}.zip" if filename else "extracted.zip"
     return Response(
         content=result,
         media_type="application/zip",

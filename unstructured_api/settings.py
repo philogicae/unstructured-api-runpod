@@ -1,12 +1,17 @@
-PDF_IMAGE_DPI = 200
-EXTRACT_IMAGE_BLOCK_TYPES = ["Image", "Table"]
-MIN_IMAGE_PIXELS = 2500
+from typing import Any, Final
 
-MB = 1024 * 1024
-MAX_UPLOAD_SIZE = 200 * MB
-MAX_DOWNLOAD_SIZE = 200 * MB
-URL_TIMEOUT = 300
-CORS_ORIGINS = ["*"]
+PDF_IMAGE_DPI: Final[int] = 200
+EXTRACT_IMAGE_BLOCK_TYPES: Final[list[str]] = ["Image", "Table"]
+MIN_IMAGE_PIXELS: Final[int] = 2500
+
+MB: Final[int] = 1024 * 1024
+MAX_SIZE: Final[int] = MB * 10
+URL_TIMEOUT: Final[int] = 600
+MIDDLEWARE_PARAMS: dict[str, Any] = {
+    "allow_origins": ["*"],
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
 
 SUPPORTED_FORMATS = {
     "documents": {

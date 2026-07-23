@@ -1,22 +1,22 @@
 [project]
 name = "unstructured-api"
-version = "1.0.0"
+version = "1.0.4"
 description = "Document parsing/OCR API powered by unstructured, deployed on RunPod serverless"
 authors = [{ name = "philogicae" }]
 requires-python = ">=3.14,<4.0"
 readme = "README.md"
 license = "MIT"
 dependencies = [
-    "unstructured[all-docs,huggingface]",
-    "runpod>=1.7",
     "fastapi>=0.115",
-    "uvicorn>=0.34",
-    "python-multipart>=0.0.18",
-    "python-dotenv>=1.0",
-    "opencv-contrib-python>=4.10",
-    "onnx>=1.21",
-    "magika>=0.5",
     "imagededup>=0.2",
+    "magika>=0.5",
+    "onnx>=1.21",
+    "opencv-contrib-python-headless>=4.10",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.18",
+    "runpod>=1.7",
+    "unstructured[all-docs,huggingface]",
+    "uvicorn>=0.34",
 ]
 
 [tool.uv]
@@ -30,13 +30,13 @@ unstructured-api = "unstructured_api.__main__:cli"
 
 [dependency-groups]
 dev = [
-    "ruff",
-    "ty",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
-    "pytest-xdist",
     "pytest-timeout",
+    "pytest-xdist",
+    "ruff",
+    "ty",
 ]
 
 [tool.hatch.build]

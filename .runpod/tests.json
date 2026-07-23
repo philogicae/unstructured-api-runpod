@@ -1,10 +1,9 @@
 {
   "tests": [
     {
-      "name": "basic_extract",
+      "name": "extract",
       "input": {
-        "file_url": "https://raw.githubusercontent.com/Unstructured-IO/unstructured/refs/heads/main/example-docs/pdf/embedded-images-tables.pdf",
-        "filename": "embedded-images-tables.pdf"
+        "file_url": "https://raw.githubusercontent.com/Unstructured-IO/unstructured/refs/heads/main/example-docs/pdf/embedded-images-tables.pdf"
       },
       "timeout": 60000
     }

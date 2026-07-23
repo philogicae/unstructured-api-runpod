@@ -1,28 +1,15 @@
-import io
-import json
-import os
-import tempfile
 from base64 import b64encode
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-from os import path, remove
-from shutil import rmtree
-from tempfile import NamedTemporaryFile, mkdtemp
-from threading import Thread
 from unittest.mock import MagicMock, patch
-from zipfile import ZipFile
 
 import pytest
-from PIL import Image
-from unstructured.partition.common import UnsupportedFileFormatError
+from unstructured.documents.elements import ElementMetadata, Text
 
 from unstructured_api.process.document import (
-    _create_result_zip,
-    _natural_sort,
     clean_text,
     cleanup_elements,
+    create_result_zip,
     extract,
     filter_elements,
-    find_duplicate_images,
     is_image_too_small,
     parse_document,
     partitioner,
@@ -30,591 +17,331 @@ from unstructured_api.process.document import (
     serialize_elements,
 )
 
-SAMPLE_CONTENT = b"Hello, world!\n\nThis is a test document.\n"
+
+class TestPartitioner:
+    @patch(
+        "unstructured_api.process.document.detect_content_type",
+        return_value="application/pdf",
+    )
+    @patch("unstructured_api.process.document.partition")
+    def test_partition_pdf(self, mock_partition, _mock_ct):
+        el = Text("test")
+        el.category = "Text"
+        mock_partition.return_value = [el]
+        result = partitioner("/path/file.pdf", "/tmp/out")
+        assert len(result) == 1
+
+    @patch(
+        "unstructured_api.process.document.detect_content_type",
+        return_value="text/plain",
+    )
+    @patch("unstructured_api.process.document.partition")
+    def test_partition_non_pdf(self, mock_partition, _mock_ct):
+        el = Text("test")
+        el.category = "Text"
+        mock_partition.return_value = [el]
+        result = partitioner("/path/file.txt", "/tmp/out")
+        assert len(result) == 1
+
+    @patch(
+        "unstructured_api.process.document.detect_content_type",
+        return_value=None,
+    )
+    @patch("unstructured_api.process.document.partition")
+    def test_partition_unsupported_format_without_mime(self, mock_partition, _mock_ct):
+        from unstructured.partition.common import UnsupportedFileFormatError
+
+        mock_partition.side_effect = UnsupportedFileFormatError("unsupported")
+        with pytest.raises(UnsupportedFileFormatError):
+            partitioner("/path/file.xyz", "/tmp/out")
+
+    @patch(
+        "unstructured_api.process.document.detect_content_type",
+        return_value="application/pdf",
+    )
+    @patch("unstructured_api.process.document.FileType")
+    @patch("unstructured_api.process.document._PartitionerLoader")
+    @patch("unstructured_api.process.document.partition")
+    def test_partition_fallback(
+        self, mock_partition, mock_loader, mock_filetype, _mock_ct
+    ):
+        from unstructured.partition.common import UnsupportedFileFormatError
+
+        mock_partition.side_effect = UnsupportedFileFormatError("unsupported")
+        ft_instance = MagicMock()
+        ft_instance.is_partitionable = True
+        mock_filetype.from_mime_type.return_value = ft_instance
+        loader_instance = MagicMock()
+        fallback_fn = MagicMock(return_value=[Text("fallback")])
+        loader_instance.get.return_value = fallback_fn
+        mock_loader.return_value = loader_instance
+        result = partitioner("/path/file.pdf", "/tmp/out")
+        assert len(result) == 1
+
+    @patch(
+        "unstructured_api.process.document.detect_content_type",
+        return_value="application/pdf",
+    )
+    @patch("unstructured_api.process.document.partition")
+    def test_image_with_text_as_html_converted_to_text(self, mock_partition, _mock_ct):
+        from unstructured.documents.elements import ElementMetadata
+
+        el = MagicMock(spec=Text)
+        el.category = "Image"
+        el.metadata = ElementMetadata(
+            image_path=None, text_as_html="<table><tr><td>data</td></tr></table>"
+        )
+        mock_partition.return_value = [el]
+        result = partitioner("/path/file.pdf", "/tmp/out")
+        assert result[0].category == "UncategorizedText"
+        assert result[0].text == "<table><tr><td>data</td></tr></table>"
 
 
-def _b64(content: bytes = SAMPLE_CONTENT) -> str:
-    return b64encode(content).decode("utf-8")
+class TestCleanText:
+    def test_empty_string(self):
+        assert clean_text("") == ""
+
+    def test_cleans_and_lowercases(self):
+        result = clean_text("  Hello---World!  ")
+        assert result == "hello world!"
+
+    def test_replaces_unicode_quotes(self):
+        result = clean_text("\u201cHello\u201d")
+        assert "hello" in result
+
+    def test_removes_bullets(self):
+        result = clean_text("\u2022 bullet")
+        assert "bullet" in result
 
 
-def _decode_zip(zip_bytes: bytes) -> list[dict]:
-    with ZipFile(io.BytesIO(zip_bytes)) as zf:
-        return json.loads(zf.read("elements.json"))
+class TestCleanupElements:
+    def test_applies_clean_to_all(self, sample_text_element):
+        el = sample_text_element
+        el.text = "  UPPER  "
+        cleanup_elements([el])
+        assert el.text == "upper"
 
 
-def _mock_element(
-    text: str = "hello",
-    category: str = "Text",
-    page_number: int | None = 1,
-    filename: str = "test.txt",
-    filetype: str = "text/plain",
-) -> MagicMock:
-    el = MagicMock()
-    el.category = category
-    el.text = text
-    el.metadata.page_number = page_number
-    el.metadata.filename = filename
-    el.metadata.filetype = filetype
-    el.metadata.image_path = None
-    el.metadata.image_base64 = None
-    el.metadata.text_as_html = None
-    el.metadata.link_urls = None
-    el.metadata.link_texts = None
-    el.metadata.languages = ["eng"]
-    el.metadata.is_continuation = False
-    return el
+class TestIsImageTooSmall:
+    @patch("unstructured_api.process.document.PILImage.open")
+    def test_too_small(self, mock_open):
+        img = MagicMock()
+        img.width = 10
+        img.height = 10
+        mock_open.return_value.__enter__.return_value = img
+        assert is_image_too_small("/path/img.png") is True
+
+    @patch("unstructured_api.process.document.PILImage.open")
+    def test_large_enough(self, mock_open):
+        img = MagicMock()
+        img.width = 100
+        img.height = 100
+        mock_open.return_value.__enter__.return_value = img
+        assert is_image_too_small("/path/img.png") is False
+
+    @patch("unstructured_api.process.document.PILImage.open")
+    def test_exception_returns_false(self, mock_open):
+        mock_open.side_effect = Exception("corrupt")
+        assert is_image_too_small("/path/img.png") is False
 
 
-@patch("unstructured_api.process.document.extract", return_value=[_mock_element()])
-def test_parse_base64(mock_extract):
-    result = parse_document(file_content=_b64())
-    assert isinstance(result, bytes)
-    data = _decode_zip(result)
-    assert "hello" in data[0]["text"].lower()
+class TestFilterElements:
+    def test_passes_through_text_element(self, sample_text_element, temp_dir):
+        result = filter_elements([sample_text_element], temp_dir)
+        assert len(result) == 1
+        assert result[0].category == "Text"
 
+    def test_keeps_unique_image(self, sample_image_element, temp_dir):
+        result = filter_elements([sample_image_element], temp_dir)
+        assert len(result) == 1
 
-@patch("unstructured_api.process.document.extract", return_value=[_mock_element()])
-def test_parse_file_path(mock_extract):
-    with NamedTemporaryFile(suffix=".txt", delete=False) as f:
-        f.write(SAMPLE_CONTENT)
-        path = f.name
-    try:
-        result = parse_document(file_path=path)
-        assert isinstance(result, bytes)
-        data = _decode_zip(result)
-        assert len(data) > 0
-    finally:
-        remove(path)
+    @patch("unstructured_api.process.document.is_image_too_small", return_value=True)
+    def test_removes_small_image(self, _mock_small, sample_image_element, temp_dir):
+        result = filter_elements([sample_image_element], temp_dir)
+        assert len(result) == 0
 
+    @patch("unstructured_api.process.document.find_duplicate_images")
+    def test_removes_duplicate_image(self, mock_dupes, sample_image_element, temp_dir):
+        mock_dupes.return_value = {"/tmp/test_images/img_1.png"}
+        result = filter_elements([sample_image_element], temp_dir)
+        assert len(result) == 0
 
-def test_parse_no_input():
-    result = parse_document()
-    assert result == {"error": "No input provided"}
-
-
-@patch("unstructured_api.process.document.extract", return_value=[_mock_element()])
-def test_parse_response_shape(mock_extract):
-    result = parse_document(file_content=_b64())
-    assert isinstance(result, bytes)
-    data = _decode_zip(result)
-    assert isinstance(data, list)
-    if data:
-        assert "type" in data[0]
-        assert "text" in data[0]
-        assert "metadata" in data[0]
-
-
-def test_parse_missing_file_path():
-    result = parse_document(file_path="/nonexistent/path/file.txt")
-    assert isinstance(result, dict)
-    assert "error" in result
-
-
-def test_parse_content_with_invalid_base64():
-    result = parse_document(file_content="not-valid-base64!!!")
-    assert isinstance(result, dict)
-    assert "error" in result
-
-
-@patch("unstructured_api.process.document.extract", side_effect=ValueError("bad pdf"))
-def test_parse_error_does_not_leak_internal_paths(mock_extract):
-
-    bad_pdf = b64encode(
-        b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
-    ).decode()
-    result = parse_document(file_content=bad_pdf)
-    assert isinstance(result, dict)
-    assert "error" in result
-    assert "/tmp/" not in result["error"]
-
-
-def test_is_image_too_small_with_tiny_image():
-    with NamedTemporaryFile(suffix=".png", delete=False) as f:
-        img_path = f.name
-    try:
-        img = Image.new("RGB", (10, 10), color="red")
-        img.save(img_path)
-        assert is_image_too_small(img_path) is True
-    finally:
-        remove(img_path)
-
-
-def test_is_image_too_small_with_large_image():
-    with NamedTemporaryFile(suffix=".png", delete=False) as f:
-        img_path = f.name
-    try:
-        img = Image.new("RGB", (100, 100), color="red")
-        img.save(img_path)
-        assert is_image_too_small(img_path) is False
-    finally:
-        remove(img_path)
-
-
-def test_is_image_too_small_nonexistent():
-    assert is_image_too_small("/nonexistent/image.png") is False
-
-
-def test_serialize_element_keys():
-    mock_element = MagicMock()
-    mock_element.category = "Title"
-    mock_element.text = "Hello"
-    mock_element.metadata.page_number = 1
-    mock_element.metadata.filename = "test.pdf"
-    mock_element.metadata.filetype = "application/pdf"
-    mock_element.metadata.image_path = None
-    mock_element.metadata.image_base64 = None
-    mock_element.metadata.text_as_html = None
-    mock_element.metadata.link_urls = None
-    mock_element.metadata.link_texts = None
-    mock_element.metadata.languages = ["eng"]
-    mock_element.metadata.is_continuation = False
-
-    result = serialize_element(mock_element)
-    assert result["type"] == "Title"
-    assert result["text"] == "Hello"
-    assert "metadata" in result
-    assert result["metadata"]["page_number"] == 1
-    assert result["metadata"]["filename"] == "test.pdf"
-    assert result["metadata"]["languages"] == ["eng"]
-
-
-def test_natural_sort():
-    files = ["img10.png", "img2.png", "img1.png"]
-    assert _natural_sort(files) == ["img1.png", "img2.png", "img10.png"]
-
-
-def test_find_duplicate_images_empty_dir():
-
-    assert find_duplicate_images(mkdtemp()) == set()
-
-
-def test_find_duplicate_images_with_duplicates():
-
-    img_dir = mkdtemp()
-    try:
-        img = Image.new("RGB", (50, 50), color="blue")
-        img.save(path.join(img_dir, "img1.png"))
-        img.save(path.join(img_dir, "img2.png"))
-        dups = find_duplicate_images(img_dir)
-        assert len(dups) == 1
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-def test_clean_text_empty():
-    assert clean_text("") == ""
-
-
-def test_clean_text_normal():
-    result = clean_text("  Hello   World  ")
-    assert "hello" in result
-    assert "world" in result
-
-
-def test_cleanup_elements():
-    mock_el = MagicMock()
-    mock_el.text = "  Hello  "
-    mock_el.apply = lambda fn: setattr(mock_el, "text", fn(mock_el.text))
-    result = cleanup_elements([mock_el])
-    assert len(result) == 1
-
-
-def test_filter_elements_table_becomes_image():
-    mock_el = MagicMock()
-    mock_el.category = "Table"
-    mock_el.text = "table text"
-    mock_el.metadata.image_path = None
-
-    img_dir = mkdtemp()
-    try:
-        result = filter_elements([mock_el], img_dir)
+    def test_converts_table_to_image(self, sample_table_element, temp_dir):
+        result = filter_elements([sample_table_element], temp_dir)
         assert len(result) == 1
         assert result[0].category == "Image"
-    finally:
-        rmtree(img_dir, ignore_errors=True)
 
-
-def test_filter_elements_removes_small_image():
-
-    img_dir = mkdtemp()
-    try:
-        img_path = path.join(img_dir, "small.png")
-        img = Image.new("RGB", (10, 10), color="red")
-        img.save(img_path)
-
-        mock_el = MagicMock()
-        mock_el.category = "Image"
-        mock_el.text = ""
-        mock_el.metadata.image_path = img_path
-
-        result = filter_elements([mock_el], img_dir)
-        assert len(result) == 0
-        assert not path.exists(img_path)
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-def test_filter_elements_keeps_normal_image():
-
-    img_dir = mkdtemp()
-    try:
-        img_path = path.join(img_dir, "big.png")
-        img = Image.new("RGB", (100, 100), color="blue")
-        img.save(img_path)
-
-        mock_el = MagicMock()
-        mock_el.category = "Image"
-        mock_el.text = ""
-        mock_el.metadata.image_path = img_path
-
-        result = filter_elements([mock_el], img_dir)
-        assert len(result) == 1
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-@patch("unstructured_api.process.document.partitioner", return_value=[_mock_element()])
-def test_extract_with_text_file(mock_partitioner):
-    with NamedTemporaryFile(suffix=".txt", delete=False) as f:
-        f.write(SAMPLE_CONTENT)
-        file_path = f.name
-    try:
-        images_dir = mkdtemp()
-        try:
-            elements = extract(file_path, images_dir)
-            assert len(elements) > 0
-        finally:
-            rmtree(images_dir, ignore_errors=True)
-    finally:
-        remove(file_path)
-
-
-def test_create_result_zip_with_images():
-
-    img_dir = mkdtemp()
-    try:
-        img = Image.new("RGB", (50, 50), color="green")
-        img.save(path.join(img_dir, "photo.png"))
-
-        serialized = [
-            {
-                "type": "Image",
-                "text": "",
-                "metadata": {
-                    "image_path": path.join(img_dir, "photo.png"),
-                    "page_number": 1,
-                },
-            }
-        ]
-        metadata = {"filename": "test.pdf", "num_elements": 1}
-        zip_bytes = _create_result_zip(serialized, metadata, img_dir)
-        with ZipFile(io.BytesIO(zip_bytes)) as zf:
-            names = zf.namelist()
-            assert "elements.json" in names
-            assert "metadata.json" in names
-            assert "images/photo.png" in names
-            data = json.loads(zf.read("elements.json"))
-            assert data[0]["metadata"]["image_path"] == "images/photo.png"
-            meta = json.loads(zf.read("metadata.json"))
-            assert meta["filename"] == "test.pdf"
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-def test_create_result_zip_no_images_dir():
-    serialized = [{"type": "Text", "text": "hello", "metadata": {"image_path": None}}]
-    metadata = {"filename": "test.txt", "num_elements": 1}
-    zip_bytes = _create_result_zip(serialized, metadata, "/nonexistent/dir")
-    with ZipFile(io.BytesIO(zip_bytes)) as zf:
-        names = zf.namelist()
-        assert "elements.json" in names
-        assert "metadata.json" in names
-
-
-@patch("unstructured_api.process.document.extract", return_value=[_mock_element()])
-def test_parse_document_with_file_url(mock_extract):
-
-    handler = SimpleHTTPRequestHandler
-    httpd = HTTPServer(("127.0.0.1", 0), handler)
-    port = httpd.server_address[1]
-    thread = Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    try:
-        test_dir = tempfile.mkdtemp()
-        test_file = path.join(test_dir, "test.txt")
-        with open(test_file, "wb") as f:
-            f.write(SAMPLE_CONTENT)
-
-        cwd = os.getcwd()
-        os.chdir(test_dir)
-        try:
-            result = parse_document(file_url=f"http://127.0.0.1:{port}/test.txt")
-            assert isinstance(result, bytes)
-            data = _decode_zip(result)
-            assert len(data) > 0
-        finally:
-            os.chdir(cwd)
-
-            rmtree(test_dir, ignore_errors=True)
-    finally:
-        httpd.shutdown()
-
-
-def test_serialize_elements_list():
-    mock_el = MagicMock()
-    mock_el.category = "Title"
-    mock_el.text = "Hello"
-    mock_el.metadata.page_number = 1
-    mock_el.metadata.filename = "test.pdf"
-    mock_el.metadata.filetype = "application/pdf"
-    mock_el.metadata.image_path = None
-    mock_el.metadata.image_base64 = None
-    mock_el.metadata.text_as_html = None
-    mock_el.metadata.link_urls = None
-    mock_el.metadata.link_texts = None
-    mock_el.metadata.languages = ["eng"]
-    mock_el.metadata.is_continuation = False
-
-    result = serialize_elements([mock_el])
-    assert len(result) == 1
-    assert result[0]["type"] == "Title"
-
-
-def test_filter_elements_oserror_on_remove():
-
-    img_dir = mkdtemp()
-    try:
-        mock_el = MagicMock()
-        mock_el.category = "Image"
-        mock_el.text = ""
-        mock_el.metadata.image_path = "/nonexistent/path/image.png"
-
-        with patch("unstructured_api.process.document.remove", side_effect=OSError):
-            result = filter_elements([mock_el], img_dir)
-        assert len(result) == 1
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-@patch(
-    "unstructured_api.process.document.extract",
-    return_value=[
-        _mock_element(
-            text="page content",
-            page_number=3,
+    @patch("unstructured_api.process.document.find_duplicate_images")
+    def test_duplicate_table_with_html_downgraded_to_text(self, _mock_ct, temp_dir):
+        meta = ElementMetadata(
+            image_path="/tmp/test_images/t1.png",
+            text_as_html="<table>html</table>",
+            page_number=1,
             filename="test.pdf",
             filetype="application/pdf",
         )
-    ],
-)
-def test_parse_document_num_pages(mock_extract):
-    result = parse_document(file_content=_b64())
-    assert isinstance(result, bytes)
-    with ZipFile(io.BytesIO(result)) as zf:
-        meta = json.loads(zf.read("metadata.json"))
-    assert meta["num_pages"] == 3
-
-
-def test_partitioner_pdf_path():
-    with NamedTemporaryFile(suffix=".pdf", delete=False) as f:
-        f.write(b"%PDF-1.4 fake pdf")
-        pdf_path = f.name
-    try:
-        images_dir = mkdtemp()
-        try:
-            with (
-                patch("unstructured.partition.auto.partition") as mock_part,
-                patch(
-                    "unstructured_api.process.document.detect_content_type",
-                    return_value="application/pdf",
-                ),
-            ):
-                mock_part.return_value = []
-                result = partitioner(pdf_path, images_dir)
-                assert result == []
-                call_kwargs = mock_part.call_args[1]
-                assert call_kwargs["extract_images_in_pdf"] is True
-                assert call_kwargs["extract_image_block_output_dir"] == images_dir
-        finally:
-            rmtree(images_dir, ignore_errors=True)
-    finally:
-        remove(pdf_path)
-
-
-def test_partitioner_unsupported_format_fallback():
-
-    mock_element = MagicMock()
-    mock_element.category = "Text"
-    mock_element.text = "hello"
-    mock_element.metadata.image_path = None
-    mock_element.metadata.text_as_html = None
-
-    fallback_fn = MagicMock(return_value=[mock_element])
-
-    with (
-        patch(
-            "unstructured.partition.auto.partition",
-            side_effect=UnsupportedFileFormatError,
-        ),
-        patch(
-            "unstructured_api.process.document.detect_content_type",
-            return_value="text/plain",
-        ),
-        patch("unstructured.partition.auto._PartitionerLoader") as mock_loader,
-    ):
-        mock_loader.return_value.get.return_value = fallback_fn
-        with NamedTemporaryFile(suffix=".txt", delete=False) as f:
-            f.write(SAMPLE_CONTENT)
-            txt_path = f.name
-        try:
-            result = partitioner(txt_path, "/tmp")
-            assert len(result) == 1
-            mock_loader.return_value.get.assert_called_once()
-        finally:
-            remove(txt_path)
-
-
-def test_partitioner_unsupported_format_not_partitionable():
-
-    with (
-        patch(
-            "unstructured.partition.auto.partition",
-            side_effect=UnsupportedFileFormatError,
-        ),
-        patch(
-            "unstructured_api.process.document.detect_content_type",
-            return_value="application/x-unknown",
-        ),
-    ):
-        with NamedTemporaryFile(suffix=".xyz", delete=False) as f:
-            f.write(b"unknown")
-            xyz_path = f.name
-        try:
-            with pytest.raises(UnsupportedFileFormatError):
-                partitioner(xyz_path, "/tmp")
-        finally:
-            remove(xyz_path)
-
-
-def test_partitioner_text_as_html_conversion():
-    mock_element = MagicMock()
-    mock_element.category = "Table"
-    mock_element.text = ""
-    mock_element.metadata.image_path = None
-    mock_element.metadata.text_as_html = "<table><tr><td>A</td></tr></table>"
-
-    with (
-        patch("unstructured.partition.auto.partition", return_value=[mock_element]),
-        patch(
-            "unstructured_api.process.document.detect_content_type",
-            return_value="text/plain",
-        ),
-    ):
-        with NamedTemporaryFile(suffix=".txt", delete=False) as f:
-            f.write(SAMPLE_CONTENT)
-            txt_path = f.name
-        try:
-            result = partitioner(txt_path, "/tmp")
-            assert len(result) == 1
-            assert "<table>" in result[0].text
-        finally:
-            remove(txt_path)
-
-
-def test_filter_elements_removes_duplicate_image():
-
-    img_dir = mkdtemp()
-    try:
-        img_path = path.join(img_dir, "img1.png")
-        img = Image.new("RGB", (100, 100), color="red")
-        img.save(img_path)
-
-        mock_el = MagicMock()
-        mock_el.category = "Image"
-        mock_el.text = ""
-        mock_el.metadata.image_path = img_path
-
+        el = MagicMock(spec=Text)
+        el.category = "Table"
+        el.text = "original"
+        el.metadata = meta
         with patch(
             "unstructured_api.process.document.find_duplicate_images",
-            return_value={img_path},
+            return_value={"/tmp/test_images/t1.png"},
         ):
-            result = filter_elements([mock_el], img_dir)
-        assert len(result) == 0
-        assert not path.exists(img_path)
-    finally:
-        rmtree(img_dir, ignore_errors=True)
+            result = filter_elements([el], temp_dir)
+            assert len(result) == 1
+            assert result[0].category == "UncategorizedText"
+            assert result[0].text == "<table>html</table>"
 
-
-def test_filter_elements_duplicate_image_oserror():
-
-    img_dir = mkdtemp()
-    try:
-        mock_el = MagicMock()
-        mock_el.category = "Image"
-        mock_el.text = ""
-        mock_el.metadata.image_path = "/nonexistent/image.png"
-
-        with (
-            patch(
-                "unstructured_api.process.document.find_duplicate_images",
-                return_value={"/nonexistent/image.png"},
-            ),
-            patch(
-                "unstructured_api.process.document.remove",
-                side_effect=OSError("permission denied"),
-            ),
-        ):
-            result = filter_elements([mock_el], img_dir)
-        assert len(result) == 0
-    finally:
-        rmtree(img_dir, ignore_errors=True)
-
-
-def test_filter_elements_duplicate_table_falls_back_to_text():
-
-    img_dir = mkdtemp()
-    try:
-        img_path = path.join(img_dir, "table_img.png")
-        img = Image.new("RGB", (100, 100), color="red")
-        img.save(img_path)
-
-        mock_el = MagicMock()
-        mock_el.category = "Table"
-        mock_el.text = ""
-        mock_el.metadata.image_path = img_path
-        mock_el.metadata.text_as_html = "<table><tr><td>A</td></tr></table>"
-
+    @patch("unstructured_api.process.document.find_duplicate_images")
+    def test_duplicate_table_without_html_stays_table(self, _mock_ct, temp_dir):
+        meta = ElementMetadata(
+            image_path="/tmp/test_images/t1.png",
+            text_as_html=None,
+            page_number=1,
+            filename="test.pdf",
+            filetype="application/pdf",
+        )
+        el = MagicMock(spec=Text)
+        el.category = "Table"
+        el.text = "original"
+        el.metadata = meta
         with patch(
             "unstructured_api.process.document.find_duplicate_images",
-            return_value={img_path},
+            return_value={"/tmp/test_images/t1.png"},
         ):
-            result = filter_elements([mock_el], img_dir)
-        assert len(result) == 1
-        assert result[0].text == "<table><tr><td>A</td></tr></table>"
-    finally:
-        rmtree(img_dir, ignore_errors=True)
+            result = filter_elements([el], temp_dir)
+            assert len(result) == 1
+            assert result[0].category == "Table"
 
 
-def test_parse_document_with_page_numbers():
-    mock_element = MagicMock()
-    mock_element.category = "Text"
-    mock_element.text = "page content"
-    mock_element.metadata.image_path = None
-    mock_element.metadata.text_as_html = None
-    mock_element.metadata.page_number = 3
-    mock_element.metadata.filename = "test.pdf"
-    mock_element.metadata.filetype = "application/pdf"
-    mock_element.metadata.image_base64 = None
-    mock_element.metadata.link_urls = None
-    mock_element.metadata.link_texts = None
-    mock_element.metadata.languages = ["eng"]
-    mock_element.metadata.is_continuation = False
+class TestSerializeElement:
+    def test_without_image_path(self):
+        meta = ElementMetadata(
+            page_number=1,
+            filename="test.pdf",
+            filetype="application/pdf",
+        )
+        el = Text(text="hello", metadata=meta)
+        el.category = "Text"
+        result = serialize_element(el)
+        assert result["type"] == "Text"
+        assert result["text"] == "hello"
+        assert result["metadata"]["image_path"] is None
 
-    with patch(
-        "unstructured_api.process.document.extract", return_value=[mock_element]
-    ):
-        result = parse_document(file_content=_b64())
+    def test_with_image_path(self):
+        meta = ElementMetadata(
+            page_number=2,
+            filename="doc.pdf",
+            filetype="application/pdf",
+            image_path="path/to/img.png",
+            image_base64="base64data",
+            text_as_html="<html>",
+            link_urls=["https://example.com"],
+            link_texts=["example"],
+            languages=["eng"],
+            is_continuation=False,
+        )
+        el = Text(text="world", metadata=meta)
+        el.category = "Title"
+        result = serialize_element(el)
+        assert result["type"] == "Title"
+        assert result["metadata"]["page_number"] == 2
+        assert result["metadata"]["text_as_html"] == "<html>"
+
+
+class TestSerializeElements:
+    def test_empty(self):
+        assert serialize_elements([]) == []
+
+    def test_multiple(self, sample_elements):
+        result = serialize_elements(sample_elements)
+        assert len(result) == 3
+
+
+class TestCreateResultZip:
+    def test_basic_zip(self, sample_serialized, temp_dir):
+        metadata = {"filename": "test.pdf", "num_elements": 2, "num_pages": 1}
+        result = create_result_zip(sample_serialized, metadata, temp_dir)
+        import zipfile
+        from io import BytesIO
+
+        with zipfile.ZipFile(BytesIO(result)) as zf:
+            assert "elements.json" in zf.namelist()
+            assert "metadata.json" in zf.namelist()
+
+    def test_zip_with_images(self, sample_serialized, tmp_path):
+        images_dir = str(tmp_path / "with_images")
+        from pathlib import Path
+
+        Path(images_dir).mkdir(parents=True)
+        (Path(images_dir) / "img_1.png").write_text("fake-png")
+        sample_serialized[1]["metadata"]["image_path"] = "images/img_1.png"
+        metadata = {"filename": "test.pdf", "num_elements": 2}
+        result = create_result_zip(sample_serialized, metadata, images_dir)
+        import zipfile
+        from io import BytesIO
+
+        with zipfile.ZipFile(BytesIO(result)) as zf:
+            assert "images/img_1.png" in zf.namelist()
+
+
+class TestParseDocument:
+    @patch("unstructured_api.process.document.base64_to_tempfile")
+    @patch("unstructured_api.process.document.extract")
+    def test_with_file_content(self, mock_extract, mock_b64tf):
+        mock_b64tf.return_value = "/tmp/test_suffix"
+        mock_extract.return_value = []
+        with patch("unstructured_api.process.document.path.exists", return_value=False):
+            result = parse_document(
+                file_content=b64encode(b"hello").decode(), filename="test.pdf"
+            )
         assert isinstance(result, bytes)
-        with ZipFile(io.BytesIO(result)) as zf:
-            meta = json.loads(zf.read("metadata.json"))
-        assert meta["num_pages"] == 3
+
+    @patch("unstructured_api.process.document.url_to_tempfile")
+    @patch("unstructured_api.process.document.extract")
+    def test_with_file_url(self, mock_extract, mock_url):
+        mock_url.return_value = "/tmp/test_suffix"
+        mock_extract.return_value = []
+        with patch("unstructured_api.process.document.path.exists", return_value=False):
+            result = parse_document(
+                file_url="https://example.com/doc.pdf", filename="doc.pdf"
+            )
+        assert isinstance(result, bytes)
+
+    @patch("unstructured_api.process.document.extract")
+    def test_with_file_path(self, mock_extract, temp_file):
+        mock_extract.return_value = []
+        result = parse_document(file_path=temp_file, filename="test.txt")
+        assert isinstance(result, bytes)
+
+    def test_no_input(self):
+        result = parse_document()
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    @patch("unstructured_api.process.document.base64_to_tempfile")
+    @patch("unstructured_api.process.document.extract")
+    def test_extract_exception_returns_error(self, mock_extract, mock_b64tf):
+        mock_b64tf.return_value = "/tmp/file"
+        mock_extract.side_effect = ValueError("something broke")
+        result = parse_document(file_content=b64encode(b"x").decode())
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "ValueError" in result["error"]
+
+    def test_integration_with_file_path(self, temp_file):
+        result = parse_document(file_path=temp_file, filename="test.txt")
+        assert isinstance(result, bytes)
+
+
+class TestExtract:
+    @patch("unstructured_api.process.document.partitioner")
+    @patch("unstructured_api.process.document.cleanup_elements")
+    @patch("unstructured_api.process.document.filter_elements")
+    def test_pipeline(self, mock_filter, mock_cleanup, mock_part):
+        mock_part.return_value = [Text("a")]
+        mock_cleanup.return_value = [Text("b")]
+        mock_filter.return_value = [Text("c")]
+        result = extract("/source", "/images", "test.txt")
+        assert len(result) == 1

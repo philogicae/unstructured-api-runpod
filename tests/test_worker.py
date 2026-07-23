@@ -1,57 +1,66 @@
 from unittest.mock import patch
 
-from unstructured_api.worker import INPUT_SCHEMA, handler, start
+import pytest
+
+from unstructured_api.worker import INPUT_SCHEMA, handler
 
 
-def test_handler_schema():
-    job = {"input": {"schema": True}}
-    result = handler(job)
-    assert "schema" in result
-    assert "input" in result["schema"]
+class TestInputSchema:
+    def test_has_file_base64(self):
+        assert "file_base64" in INPUT_SCHEMA
+        assert INPUT_SCHEMA["file_base64"]["type"] is str
+        assert INPUT_SCHEMA["file_base64"]["required"] is False
+
+    def test_has_file_url(self):
+        assert "file_url" in INPUT_SCHEMA
+        assert INPUT_SCHEMA["file_url"]["type"] is str
+        assert INPUT_SCHEMA["file_url"]["required"] is False
 
 
-@patch("unstructured_api.worker.parse_document")
-def test_handler_valid(mock_parse):
-    mock_parse.return_value = b"fakezip"
-    job = {"input": {"file_base64": "SGVsbG8="}}
-    result = handler(job)
-    assert isinstance(result, bytes)
-    mock_parse.assert_called_once_with(
-        file_content="SGVsbG8=",
-        file_url=None,
-    )
+class TestHandler:
+    @patch("unstructured_api.worker.parse_document")
+    def test_valid_base64_input(self, mock_parse):
+        mock_parse.return_value = b"zip-content"
+        job = {"input": {"file_base64": "aGVsbG8="}}
+        result = handler(job)
+        assert result == b"zip-content"
 
+    @patch("unstructured_api.worker.parse_document")
+    def test_valid_url_input(self, mock_parse):
+        mock_parse.return_value = b"zip-content"
+        job = {"input": {"file_url": "https://example.com/doc.pdf"}}
+        result = handler(job)
+        assert result == b"zip-content"
 
-@patch("unstructured_api.worker.parse_document")
-def test_handler_minimal_input(mock_parse):
-    mock_parse.return_value = b"fakezip"
-    job = {"input": {"file_base64": "dGVzdA=="}}
-    result = handler(job)
-    assert isinstance(result, bytes)
-    mock_parse.assert_called_once()
-    kwargs = mock_parse.call_args[1]
-    assert kwargs["file_content"] == "dGVzdA=="
+    def test_invalid_schema(self):
+        job = {"input": {"invalid_field": "value"}}
+        result = handler(job)
+        assert isinstance(result, dict)
+        assert "error" in result
 
+    @patch("unstructured_api.worker.parse_document")
+    def test_oversized_base64(self, mock_parse):
+        mock_parse.return_value = b"zip-content"
+        big = "a" * int((11 * 1024 * 1024) * 4 / 3)
+        job = {"input": {"file_base64": big}}
+        result = handler(job)
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "exceeds max" in result["error"]
 
-def test_handler_missing_input_key():
-    job = {"input": {}}
-    result = handler(job)
-    assert "error" in result
+    @patch("unstructured_api.worker.parse_document")
+    @patch("unstructured_api.worker.rp_cleanup")
+    def test_exception_cleans_up(self, mock_cleanup, mock_parse):
+        mock_parse.side_effect = RuntimeError("boom")
+        job = {"input": {"file_base64": "aGVsbG8="}}
+        with pytest.raises(RuntimeError):
+            handler(job)
+        mock_cleanup.clean.assert_called_once()
 
-
-def test_handler_validation_error():
-    job = {"input": {"file_base64": 12345}}
-    result = handler(job)
-    assert "error" in result
-
-
-def test_input_schema_structure():
-    assert "file_base64" in INPUT_SCHEMA
-    assert "file_url" in INPUT_SCHEMA
-    assert "filename" not in INPUT_SCHEMA
-
-
-def test_worker_start():
-    with patch("unstructured_api.worker.serverless") as mock_serverless:
-        start()
-        mock_serverless.start.assert_called_once()
+    @patch("unstructured_api.worker.parse_document")
+    @patch("unstructured_api.worker.rp_cleanup")
+    def test_success_cleans_up(self, mock_cleanup, mock_parse):
+        mock_parse.return_value = b"zip"
+        job = {"input": {"file_base64": "aGVsbG8="}}
+        handler(job)
+        mock_cleanup.clean.assert_called_once()

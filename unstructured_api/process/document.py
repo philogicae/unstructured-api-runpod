@@ -1,22 +1,20 @@
-from __future__ import annotations
-
-import copy
-import io
-import json
 import logging
-from os import listdir, path, remove, walk
+from io import BytesIO
+from json import dumps
+from os import path, remove, walk
 from pathlib import Path, PurePath
-from re import split as re_split
 from shutil import rmtree
 from time import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from unstructured.documents.elements import Element
+from typing import Any
 from unicodedata import normalize
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from PIL import Image as PILImage
+from unstructured.cleaners.core import clean, replace_unicode_quotes
+from unstructured.documents.elements import Element, Image, Text
+from unstructured.file_utils.filetype import FileType
+from unstructured.partition.auto import _PartitionerLoader, partition
+from unstructured.partition.common import UnsupportedFileFormatError
 
 from unstructured_api.process.utils import (
     base64_to_tempfile,
@@ -30,46 +28,14 @@ from unstructured_api.settings import (
     PDF_IMAGE_DPI,
 )
 
+from .utils import find_duplicate_images
+
 logger = logging.getLogger(__name__)
-
-
-def _natural_sort(file_list: list[str]) -> list[str]:
-    return sorted(
-        file_list,
-        key=lambda s: [
-            int(text) if text.isdigit() else text.lower()
-            for text in re_split("([0-9]+)", s)
-        ],
-    )
-
-
-def find_duplicate_images(image_dir: str) -> set[str]:
-    from imagededup.methods import PHash
-
-    folder = listdir(image_dir)
-    if not folder:
-        return set()
-    phasher = PHash()
-    duplicates = phasher.find_duplicates(PurePath(image_dir))
-    images_to_remove: set[str] = set()
-    for file in _natural_sort(folder):
-        filepath = f"{image_dir}/{file}"
-        if filepath not in images_to_remove:
-            for dup in duplicates.get(file, []):
-                images_to_remove.add(f"{image_dir}/{dup}")
-    if images_to_remove:
-        logger.info("Found %d duplicate images", len(images_to_remove))
-    return images_to_remove
 
 
 def partitioner(
     file: str, output_dir: str, filename: str | None = None
 ) -> list[Element]:
-    from unstructured.documents.elements import Text
-    from unstructured.file_utils.filetype import FileType
-    from unstructured.partition.auto import _PartitionerLoader, partition
-    from unstructured.partition.common import UnsupportedFileFormatError
-
     content_type = detect_content_type(file)
     is_pdf = content_type is not None and "pdf" in content_type
     partitioning_kwargs: dict[str, Any] = {
@@ -113,8 +79,6 @@ def partitioner(
 
 
 def clean_text(text: str) -> str:
-    from unstructured.cleaners.core import clean, replace_unicode_quotes
-
     if not text:
         return ""
     return normalize(
@@ -148,8 +112,6 @@ def is_image_too_small(image_path: str) -> bool:
 
 
 def filter_elements(elements: list[Element], image_dir: str) -> list[Element]:
-    from unstructured.documents.elements import Image, Text
-
     filtered: list[Element] = []
     duplicated_images = find_duplicate_images(image_dir)
     small_removed = 0
@@ -225,21 +187,20 @@ def serialize_elements(elements: list[Element]) -> list[dict]:
     return [serialize_element(e) for e in elements]
 
 
-def _create_result_zip(
+def create_result_zip(
     serialized: list[dict],
     metadata: dict,
     images_dir: str,
 ) -> bytes:
-    serialized = copy.deepcopy(serialized)
     for el in serialized:
         img_path = el["metadata"]["image_path"]
         if img_path:
             el["metadata"]["image_path"] = f"images/{path.basename(img_path)}"
 
-    elements_json = json.dumps(serialized, ensure_ascii=False, separators=(",", ":"))
-    metadata_json = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    elements_json = dumps(serialized, ensure_ascii=False, separators=(",", ":"))
+    metadata_json = dumps(metadata, ensure_ascii=False, separators=(",", ":"))
 
-    buf = io.BytesIO()
+    buf = BytesIO()
     with ZipFile(buf, "w", ZIP_DEFLATED) as zf:
         zf.writestr("elements.json", elements_json)
         zf.writestr("metadata.json", metadata_json)
@@ -257,6 +218,13 @@ def parse_document(
     file_path: str | None = None,
     filename: str | None = None,
 ) -> bytes | dict:
+    logger.info(
+        "Parsing document: filename=%s file_url=%s file_path=%s content_len=%s",
+        filename,
+        file_url,
+        file_path,
+        len(file_content) if file_content else None,
+    )
     temp_path = None
     num_pages = None
     try:
@@ -303,7 +271,7 @@ def parse_document(
             "processing_time": round(processing_time, 2),
         }
 
-        zip_bytes = _create_result_zip(serialized, metadata, images_dir)
+        zip_bytes = create_result_zip(serialized, metadata, images_dir)
 
         logger.info(
             "Parsed %s: %d elements, %d pages, %.2fs",

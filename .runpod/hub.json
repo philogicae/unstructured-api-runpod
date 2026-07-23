@@ -7,7 +7,7 @@
   "config": {
     "runsOn": "GPU",
     "containerDiskInGb": 10,
-    "gpuIds": "AMPERE_16",
+    "gpuIds": "AMPERE_16,AMPERE_24",
     "gpuCount": 1
   }
 }

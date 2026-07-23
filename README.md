@@ -8,29 +8,29 @@
 
 Document parsing/OCR API powered by [unstructured](https://github.com/Unstructured-IO/unstructured). Supports PDF, DOCX, PPTX, images, HTML, EPUB, and [many more](https://docs.unstructured.io/open-source/introduction/supported-file-types).
 
-[![Runpod](https://api.runpod.io/badge/philogicae/unstructured-api-runpod)](https://console.runpod.io/hub/philogicae/unstructured-api-runpod)
-
 Designed to run on [RunPod serverless](https://www.runpod.io/) or as a **standalone FastAPI server**.
+
+[![Runpod](https://api.runpod.io/badge/philogicae/unstructured-api-runpod)](https://console.runpod.io/hub/philogicae/unstructured-api-runpod)
 
 ## Quick start
 
 ```bash
 # Install system dependencies
 apt update -y
-apt install -y g++ libmagic-dev poppler-utils tesseract-ocr libreoffice rustc
-
+apt install -y g++ libmagic-dev poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libreoffice rustc wget
 # Install Python dependencies
 uv sync
-
-# Run the server
-uv run -m unstructured-api --mode api    # start FastAPI on :8000
+# Run the server on :8000
+uv run -m unstructured-api --mode api
 ```
 
 ## Docker
 
 ```bash
-docker compose up -d
-curl -X POST http://localhost:8000/extract -F "file=@document.pdf"
+# Deploy (with rebuild)
+docker compose up -d --build
+# Test
+curl -X POST http://localhost:8000/extract -F "file=@doc.pdf" -o output.zip
 ```
 
 Deployment is handled via CI — tag a commit and push. See `.github/workflows/ci-cd.yml`.
@@ -40,36 +40,22 @@ Deployment is handled via CI — tag a commit and push. See `.github/workflows/c
 
 ## API
 
-### POST /extract
+**`GET /formats`**: Returns supported file types.
 
-Upload a file directly (multipart) or pass base64/URL:
-
-| Field         | Type       | Description                             |
+**`POST /extract`**:
+| Field | Type | Description |
 | ------------- | ---------- | --------------------------------------- |
-| `file`        | UploadFile | Attach a file directly (multipart only) |
-| `file_base64` | str        | Base64-encoded file content             |
-| `file_url`    | str        | Public URL to download                  |
+| `file` | UploadFile | Attach a file directly (multipart only) |
+| `file_base64` | str | Base64-encoded file content |
+| `file_url` | str | Public URL to download |
 
-Uses `hi_res` strategy with auto-detected OCR languages.
-
-Max upload size: 200 MB. Downloads from URLs are limited to 200 MB.
-
-### GET /formats
-
-Returns all supported file formats categorized by type.
-
-### Serverless (RunPod)
+## Serverless (RunPod)
 
 ```json
-{
-  "input": {
-    "file_base64": "<base64>",
-    "file_url": "https://..."
-  }
-}
+{ "input": { "file_base64": "<base64>", "file_url": "https://..." } }
 ```
 
-### Output
+## Output
 
 Returns a `.zip` file (`Content-Type: application/zip`) containing:
 
@@ -77,15 +63,4 @@ Returns a `.zip` file (`Content-Type: application/zip`) containing:
 - `metadata.json` — processing metadata (filename, num_elements, num_pages, etc.)
 - `images/` — extracted images (if any)
 
-On success:
-
-```bash
-curl -o result.zip -F "file=@document.pdf" http://localhost:8000/extract
-unzip -p result.zip elements.json | jq .
-```
-
-On error:
-
-```json
-{"error": "Processing failed: ValueError"}
-```
+On error: `{"error": "..."}`

@@ -6,7 +6,7 @@ from runpod.serverless.utils import rp_cleanup
 from runpod.serverless.utils.rp_validator import validate
 
 from unstructured_api.process.document import parse_document
-from unstructured_api.schema import get_schema_serverless
+from unstructured_api.process.utils import exceeds_size, get_filename
 
 logger = logging.getLogger(__name__)
 
@@ -17,22 +17,25 @@ INPUT_SCHEMA = {
 
 
 def handler(job):
+    logger.info("Start job")
     job_input = job["input"]
-    if job_input.get("schema"):
-        return {"schema": get_schema_serverless()}
-
     validated = validate(job_input, INPUT_SCHEMA)
     if "errors" in validated:
         logger.warning("Validation failed: %s", validated["errors"])
         return {"error": validated["errors"]}
-
     inp = cast(dict[str, Any], validated["validated_input"])
-    logger.info("Processing job")
-
+    file_content = inp.get("file_base64")
+    file_url = inp.get("file_url")
+    if file_content and exceeds_size(file_content):
+        logger.warning("Base64 input rejected: exceeds max size")
+        return {"error": "File exceeds max upload size"}
+    filename = get_filename(file_url=file_url)
+    logger.info("Processing job: filename=%s", filename)
     try:
         return parse_document(
-            file_content=inp["file_base64"],
-            file_url=inp["file_url"],
+            file_content=file_content,
+            file_url=file_url,
+            filename=filename,
         )
     finally:
         rp_cleanup.clean()
