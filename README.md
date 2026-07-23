@@ -17,7 +17,9 @@ Designed to run on [RunPod serverless](https://www.runpod.io/) or as a **standal
 ```bash
 # Install system dependencies
 apt update -y
-apt install -y g++ libmagic-dev poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libreoffice rustc wget
+apt install -y g++ libmagic-dev poppler-utils tesseract-ocr tesseract-ocr-all libreoffice rustc wget \
+  fonts-dejavu fonts-liberation fonts-noto-core fontconfig
+fc-cache -fv
 # Install Python dependencies
 uv sync
 # Run the server on :8000
