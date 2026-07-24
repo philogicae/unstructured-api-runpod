@@ -33,10 +33,10 @@ TEST_DATA = {
 
 
 def _request(url: str, *, data: bytes | None = None, timeout: int = 30) -> dict:
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310
         url, data=data, headers=HEADERS, method="POST" if data else "GET"
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
 
 

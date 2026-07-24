@@ -1,7 +1,8 @@
 import logging
+from contextlib import suppress
 from io import BytesIO
 from json import dumps
-from os import path, remove, walk
+from os import walk
 from pathlib import Path, PurePath
 from shutil import rmtree
 from time import time
@@ -135,10 +136,8 @@ def filter_elements(elements: list[Element], image_dir: str) -> list[Element]:
             else:
                 filtered.append(element)
         elif image_path:
-            try:
-                remove(image_path)
-            except OSError:
-                pass
+            with suppress(OSError):
+                Path(image_path).unlink()
             if too_small:
                 small_removed += 1
             elif duplicated and element.category == "Table":
@@ -195,7 +194,7 @@ def create_result_zip(
     for el in serialized:
         img_path = el["metadata"]["image_path"]
         if img_path:
-            el["metadata"]["image_path"] = f"images/{path.basename(img_path)}"
+            el["metadata"]["image_path"] = f"images/{Path(img_path).name}"
 
     elements_json = dumps(serialized, ensure_ascii=False, separators=(",", ":"))
     metadata_json = dumps(metadata, ensure_ascii=False, separators=(",", ":"))
@@ -204,10 +203,10 @@ def create_result_zip(
     with ZipFile(buf, "w", ZIP_DEFLATED) as zf:
         zf.writestr("elements.json", elements_json)
         zf.writestr("metadata.json", metadata_json)
-        if path.exists(images_dir):
+        if Path(images_dir).exists():
             for root, _, files in walk(images_dir):
                 for f in files:
-                    file_path = path.join(root, f)
+                    file_path = str(Path(root) / f)
                     zf.write(file_path, f"images/{f}")
     return buf.getvalue()
 
@@ -245,12 +244,12 @@ def parse_document(
 
         started = time()
 
-        images_dir = f"{path.splitext(source)[0]}_images"
+        images_dir = f"{Path(source).with_suffix('')}_images"
         Path(images_dir).mkdir(exist_ok=True)
 
         elements = extract(source, images_dir, filename)
 
-        file_size = path.getsize(source) if path.exists(source) else 0
+        file_size = Path(source).stat().st_size if Path(source).exists() else 0
         serialized = serialize_elements(elements)
         processing_time = time() - started
 
@@ -264,7 +263,7 @@ def parse_document(
                 num_pages = max(all_pages)
 
         metadata = {
-            "filename": filename or path.basename(source),
+            "filename": filename or Path(source).name,
             "file_size": file_size,
             "num_elements": len(serialized),
             "num_pages": num_pages,
@@ -291,5 +290,5 @@ def parse_document(
     finally:
         if temp_path:
             cleanup(temp_path)
-        if "images_dir" in locals() and path.exists(images_dir):
+        if "images_dir" in locals() and Path(images_dir).exists():
             rmtree(images_dir, ignore_errors=True)

@@ -1,17 +1,69 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Lock and sync dependencies
+# ---------------------------------------------------------------------------
+# Python tooling
+# ---------------------------------------------------------------------------
+
+echo "==> Locking and syncing dependencies"
 uv lock && uv sync -U --link-mode=copy
 
-# Format code
+echo "==> Formatting Python code"
 uv run ruff format
 
-# Check for linting errors
+echo "==> Linting Python code (with autofix)"
 uv run ruff check --fix
 
-# Run type checking
+echo "==> Type checking"
 uv run ty check
 
-# Run tests with coverage
-uv run pytest --cov=unstructured_api --cov-report=term-missing
+# ---------------------------------------------------------------------------
+# Bash checks (scripts + config)
+# ---------------------------------------------------------------------------
+
+echo "==> Checking bash files..."
+
+BASH_DIRS=("./scripts")
+
+# Collect bash files safely
+mapfile -t BASH_FILES < <(
+	find "${BASH_DIRS[@]}" -type f -name "*.sh" 2>/dev/null | sort
+)
+
+if [[ ${#BASH_FILES[@]} -eq 0 ]]; then
+	echo "==> No bash files found under ${BASH_DIRS[*]} – skipping"
+else
+	echo "==> Found ${#BASH_FILES[@]} bash file(s) to check"
+
+	# Format with shfmt
+	echo "==> Formatting bash files"
+	changed=0
+	for file in "${BASH_FILES[@]}"; do
+		if ! shfmt -d "$file" >/dev/null 2>&1; then
+			shfmt -w "$file"
+			((changed++)) || true
+		fi
+	done
+
+	if [[ $changed -eq 0 ]]; then
+		echo "All bash files already formatted correctly!"
+	else
+		echo "Formatted $changed bash file(s)"
+	fi
+
+	# Lint with shellcheck
+	echo "==> Linting bash files with shellcheck"
+	if shellcheck "${BASH_FILES[@]}"; then
+		echo "All bash files passed shellcheck!"
+	else
+		echo "shellcheck found issues" >&2
+		exit 1
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+echo "==> Running tests with coverage (parallel)"
+uv run pytest -n auto --dist worksteal --cov=unstructured_api --cov-report=term-missing

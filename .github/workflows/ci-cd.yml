@@ -48,12 +48,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev --frozen
       - name: Run pytest with coverage
-        run: |
-          uv run pytest -v --tb=no \
-            -n auto --timeout=120 \
-            --cov=unstructured_api \
-            --cov-report=term-missing \
-            --cov-report=markdown-append:$GITHUB_STEP_SUMMARY
+        run: uv run pytest -v --tb=no -n auto --timeout=120 --dist worksteal --cov=unstructured_api --cov-report=term-missing --cov-report=markdown-append:$GITHUB_STEP_SUMMARY
 
   publish-to-docker-hub:
     name: >-

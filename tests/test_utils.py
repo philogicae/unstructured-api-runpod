@@ -1,4 +1,5 @@
 from base64 import b64encode
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -102,7 +103,7 @@ class TestBase64ToTempfile:
         content = b64encode(b"hello world").decode()
         path = base64_to_tempfile(content, suffix=".txt")
         try:
-            with open(path) as f:
+            with Path(path).open() as f:
                 assert f.read() == "hello world"
             assert path.endswith(".txt")
         finally:
@@ -118,7 +119,7 @@ class TestUrlToTempfile:
         mock_urlopen.return_value.__enter__.return_value = response
         path = url_to_tempfile("https://example.com/file.txt", suffix=".txt")
         try:
-            with open(path) as f:
+            with Path(path).open() as f:
                 assert f.read() == "hello world"
             assert path.endswith(".txt")
         finally:

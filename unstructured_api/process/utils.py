@@ -1,7 +1,8 @@
 import logging
 from base64 import b64decode
-from os import close, listdir, remove
-from pathlib import PurePath
+from contextlib import suppress
+from os import close
+from pathlib import Path, PurePath
 from re import split as re_split
 from tempfile import mkstemp
 from time import time as now
@@ -57,11 +58,11 @@ def detect_content_type(file_path: str) -> str | None:
 def base64_to_tempfile(content: str, suffix: str = "") -> str:
     fd, path = mkstemp(suffix=suffix)
     try:
-        with open(fd, "wb") as f:
+        with open(fd, "wb") as f:  # noqa: PTH123
             f.write(b64decode(content))
     except Exception:
         close(fd)
-        remove(path)
+        Path(path).unlink()
         raise
     return path
 
@@ -70,10 +71,10 @@ def url_to_tempfile(url: str, suffix: str = "") -> str:
     scheme = urlparse(url).scheme.lower()
     if scheme not in ("http", "https"):
         raise ValueError(f"Unsupported URL scheme: {scheme or '(none)'}")
-    req = Request(url, headers={"User-Agent": "unstructured-api/1.0"})
+    req = Request(url, headers={"User-Agent": "unstructured-api/1.0"})  # noqa: S310
     fd, path = mkstemp(suffix=suffix)
     try:
-        with urlopen(req, timeout=URL_TIMEOUT) as response:
+        with urlopen(req, timeout=URL_TIMEOUT) as response:  # noqa: S310
             content_length = response.headers.get("Content-Length")
             if content_length:
                 try:
@@ -82,7 +83,7 @@ def url_to_tempfile(url: str, suffix: str = "") -> str:
                     cl = 0
                 if cl and cl > MAX_SIZE:
                     raise ValueError(f"Download exceeds max size ({MAX_SIZE} bytes)")
-            with open(fd, "wb") as f:
+            with open(fd, "wb") as f:  # noqa: PTH123
                 total = 0
                 while True:
                     chunk = response.read(64 * 1024)
@@ -95,18 +96,16 @@ def url_to_tempfile(url: str, suffix: str = "") -> str:
                         )
                     f.write(chunk)
     except Exception:
-        try:
+        with suppress(OSError):
             close(fd)
-        except OSError:
-            pass
-        remove(path)
+        Path(path).unlink()
         raise
     logger.info("Downloaded %s to %s (%d bytes)", url, path, total)
     return path
 
 
 def find_duplicate_images(image_dir: str) -> set[str]:
-    folder = listdir(image_dir)
+    folder = [p.name for p in Path(image_dir).iterdir()]
     if not folder:
         return set()
     phasher = PHash()
@@ -123,10 +122,8 @@ def find_duplicate_images(image_dir: str) -> set[str]:
 
 
 def cleanup(path: str) -> None:
-    try:
-        remove(path)
-    except OSError:
-        pass
+    with suppress(OSError):
+        Path(path).unlink()
 
 
 def elapsed(started: float) -> float:

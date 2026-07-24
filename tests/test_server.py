@@ -67,7 +67,7 @@ class TestExtract:
         assert resp.status_code == 413
 
     @patch("unstructured_api.server.exceeds_size", return_value=True)
-    async def test_oversized_base64(self, _mock_exceeds, client):
+    async def test_oversized_base64(self, mock_exceeds, client):
         resp = await client.post(
             "/extract", data={"file_base64": b64encode(b"x").decode()}
         )

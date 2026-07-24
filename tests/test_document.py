@@ -24,7 +24,7 @@ class TestPartitioner:
         return_value="application/pdf",
     )
     @patch("unstructured_api.process.document.partition")
-    def test_partition_pdf(self, mock_partition, _mock_ct):
+    def test_partition_pdf(self, mock_partition, mock_ct):
         el = Text("test")
         el.category = "Text"
         mock_partition.return_value = [el]
@@ -36,7 +36,7 @@ class TestPartitioner:
         return_value="text/plain",
     )
     @patch("unstructured_api.process.document.partition")
-    def test_partition_non_pdf(self, mock_partition, _mock_ct):
+    def test_partition_non_pdf(self, mock_partition, mock_ct):
         el = Text("test")
         el.category = "Text"
         mock_partition.return_value = [el]
@@ -48,7 +48,7 @@ class TestPartitioner:
         return_value=None,
     )
     @patch("unstructured_api.process.document.partition")
-    def test_partition_unsupported_format_without_mime(self, mock_partition, _mock_ct):
+    def test_partition_unsupported_format_without_mime(self, mock_partition, mock_ct):
         from unstructured.partition.common import UnsupportedFileFormatError
 
         mock_partition.side_effect = UnsupportedFileFormatError("unsupported")
@@ -63,7 +63,7 @@ class TestPartitioner:
     @patch("unstructured_api.process.document._PartitionerLoader")
     @patch("unstructured_api.process.document.partition")
     def test_partition_fallback(
-        self, mock_partition, mock_loader, mock_filetype, _mock_ct
+        self, mock_partition, mock_loader, mock_filetype, mock_ct
     ):
         from unstructured.partition.common import UnsupportedFileFormatError
 
@@ -83,7 +83,7 @@ class TestPartitioner:
         return_value="application/pdf",
     )
     @patch("unstructured_api.process.document.partition")
-    def test_image_with_text_as_html_converted_to_text(self, mock_partition, _mock_ct):
+    def test_image_with_text_as_html_converted_to_text(self, mock_partition, mock_ct):
         from unstructured.documents.elements import ElementMetadata
 
         el = MagicMock(spec=Text)
@@ -156,7 +156,7 @@ class TestFilterElements:
         assert len(result) == 1
 
     @patch("unstructured_api.process.document.is_image_too_small", return_value=True)
-    def test_removes_small_image(self, _mock_small, sample_image_element, temp_dir):
+    def test_removes_small_image(self, mock_small, sample_image_element, temp_dir):
         result = filter_elements([sample_image_element], temp_dir)
         assert len(result) == 0
 
@@ -172,7 +172,7 @@ class TestFilterElements:
         assert result[0].category == "Image"
 
     @patch("unstructured_api.process.document.find_duplicate_images")
-    def test_duplicate_table_with_html_downgraded_to_text(self, _mock_ct, temp_dir):
+    def test_duplicate_table_with_html_downgraded_to_text(self, mock_ct, temp_dir):
         meta = ElementMetadata(
             image_path="/tmp/test_images/t1.png",
             text_as_html="<table>html</table>",
@@ -194,7 +194,7 @@ class TestFilterElements:
             assert result[0].text == "<table>html</table>"
 
     @patch("unstructured_api.process.document.find_duplicate_images")
-    def test_duplicate_table_without_html_stays_table(self, _mock_ct, temp_dir):
+    def test_duplicate_table_without_html_stays_table(self, mock_ct, temp_dir):
         meta = ElementMetadata(
             image_path="/tmp/test_images/t1.png",
             text_as_html=None,
@@ -292,7 +292,7 @@ class TestParseDocument:
     def test_with_file_content(self, mock_extract, mock_b64tf):
         mock_b64tf.return_value = "/tmp/test_suffix"
         mock_extract.return_value = []
-        with patch("unstructured_api.process.document.path.exists", return_value=False):
+        with patch("unstructured_api.process.document.Path.exists", return_value=False):
             result = parse_document(
                 file_content=b64encode(b"hello").decode(), filename="test.pdf"
             )
@@ -303,7 +303,7 @@ class TestParseDocument:
     def test_with_file_url(self, mock_extract, mock_url):
         mock_url.return_value = "/tmp/test_suffix"
         mock_extract.return_value = []
-        with patch("unstructured_api.process.document.path.exists", return_value=False):
+        with patch("unstructured_api.process.document.Path.exists", return_value=False):
             result = parse_document(
                 file_url="https://example.com/doc.pdf", filename="doc.pdf"
             )
